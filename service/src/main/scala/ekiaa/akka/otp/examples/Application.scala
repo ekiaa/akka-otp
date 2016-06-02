@@ -1,7 +1,8 @@
-package ekiaa.akka.otp.example
+package ekiaa.akka.otp.examples
 
 import akka.actor.ActorSystem
 import com.typesafe.scalalogging.StrictLogging
+import ekiaa.akka.otp.examples.ex01.{Ex01Worker, Ex01TopSup}
 
 object Application extends App with StrictLogging {
 
@@ -9,11 +10,13 @@ object Application extends App with StrictLogging {
 
   val system = ActorSystem("OTP-Example")
 
-  FirstLevelSupervisor.start(system)
+  Ex01TopSup.start(system)
 
   Thread.sleep(1000)
 
-  FirstLevelWorker.doSmth("firstLevelWorker", "msg")
+  Ex01Worker.doSmth("ex01Worker", "Message to Ex01Worker")
+
+  Thread.sleep(1000)
 
   system.terminate()
 
