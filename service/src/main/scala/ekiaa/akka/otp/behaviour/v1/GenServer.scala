@@ -1,8 +1,8 @@
-package ekiaa.akka.otp.behaviour
+package ekiaa.akka.otp.behaviour.v1
 
 import java.util.UUID
 
-import akka.actor.{Actor, ActorContext, ActorRef}
+import akka.actor.{Actor, ActorRef}
 
 import scala.collection.immutable.HashMap
 

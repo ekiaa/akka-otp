@@ -1,19 +1,20 @@
-package ekiaa.akka.otp.behaviour
+package ekiaa.akka.otp.behaviour.v1
 
 import java.util.concurrent.TimeUnit
 
 import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.testkit.TestKit
+import ekiaa.akka.otp.behaviour.v1
 import org.scalamock.scalatest.MockFactory
 import org.scalatest.{Matchers, WordSpecLike}
 
 import scala.concurrent.duration.FiniteDuration
 
-case class GetCounterValue() extends Request {
+case class GetCounterValue() extends v1.Request {
   def response(value: Int): Response = CounterValue(value)
 }
 
-case class IncrementCounter() extends Request {
+case class IncrementCounter() extends v1.Request {
   def response(value: Int): Response = CounterValue(value)
 }
 
@@ -25,7 +26,7 @@ class TestServer extends GenServer[Int] {
     0
   }
 
-  override def onRequest(request: Request, counter: Int): OnRequestResult = {
+  override def onRequest(request: v1.Request, counter: Int): OnRequestResult = {
     request match {
       case req: IncrementCounter =>
         val newValue = counter + 1
@@ -39,7 +40,7 @@ class TestServer extends GenServer[Int] {
 }
 
 case class TestRef(actorRef: ActorRef) extends GenServerRef {
-  override def request(request: Request, sender: ActorRef): RequestMessageId = {
+  override def request(request: v1.Request, sender: ActorRef): RequestMessageId = {
     val requestMessage = RequestMessage(request, sender)
     actorRef ! requestMessage
     requestMessage.requestMessageId
@@ -50,7 +51,7 @@ class TestClient(server: TestRef) extends GenServer[Unit] {
 
   override def onInit(): Unit = {}
 
-  override def onRequest(request: Request, state: Unit): OnRequestResult = {
+  override def onRequest(request: v1.Request, state: Unit): OnRequestResult = {
     request match {
       case _: IncrementCounter =>
         PostponeResponse(
