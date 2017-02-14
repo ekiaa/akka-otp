@@ -25,13 +25,13 @@ class Ex03Actor02(id: String) extends PersistentActor with UnboundedStash with S
 
   override def receiveRecover: Receive = {
     case incomingRequest: IncomingRequest =>
-      lastAction = Some(handleIncomingRequest(incomingRequest.request, state))
+      lastAction = Some(handleIncomingRequest(incomingRequest.requestMessage, state))
       processing = true
     case outgoingRequest: OutgoingRequest =>
       lastAction = None
       transientStateInProcessing = Some(outgoingRequest.transientState)
     case incomingResponse: IncomingResponse =>
-      lastAction = Some(handleIncomingResponse(incomingResponse.response, transientStateInProcessing.get))
+      lastAction = Some(handleIncomingResponse(incomingResponse.responseMessage, transientStateInProcessing.get))
     case outgoingResponse: OutgoingResponse =>
       lastAction = None
       transientStateInProcessing = None
