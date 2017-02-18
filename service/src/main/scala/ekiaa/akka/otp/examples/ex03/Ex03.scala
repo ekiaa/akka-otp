@@ -1,67 +1,40 @@
 package ekiaa.akka.otp.examples.ex03
 
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
-import java.util.function.Function
 
-import akka.actor.{ActorRef, ActorSystem}
+import akka.actor.{ActorSystem, Props}
+import com.typesafe.config.ConfigFactory
+import ekiaa.akka.otp.entity.persistence.{PersistenceEntity, PersistenceEntitySystem}
 
-object Ex03 {
+object Ex03 extends App {
 
-  trait Request {
-    val id: String = UUID.randomUUID().toString
-    val requesterId: String
-    val reactorId: String
-  }
-  case class Request01(requesterId: String, reactorId: String, newValue: Int) extends Request
-  case class Request02(requesterId: String, reactorId: String, newValue: Int, count: Int) extends Request
-  case class Request03(requesterId: String, reactorId: String, newValue: Int, count: Int, avg: Double) extends Request
+  PersistenceEntitySystem.registerExtensionFactory(
+    Ex03PersistenceEntitySystemExtension.extensionFactory
+  )
+  PersistenceEntitySystem.registerEntityBuilder(
+    Ex03PersistenceEntitySystemExtension.entityBuilder
+  )
 
-  trait Response {
-    val id: String = UUID.randomUUID().toString
-    val requesterId: String
-    val reactorId: String
-  }
-  case class Response01(requesterId: String, reactorId: String, avg: Double, meanDeviation: Double) extends Response
-  case class Response02(requesterId: String, reactorId: String, avg: Double) extends Response
-  case class Response03(requesterId: String, reactorId: String, meanDeviation: Double) extends Response
-
-  trait DomainEvent
-  case class IncomingRequest(request: Request) extends DomainEvent
-  case class OutgoingResponse(response: Response, state: State) extends DomainEvent
-  case class OutgoingRequest(request: Request, transientState: TransientState) extends DomainEvent
-  case class IncomingResponse(response: Response) extends DomainEvent
-
-  trait State
-
-  trait TransientState
-
-  def actor01PersistenceId(id: String): String = s"Ex03Actor01-$id"
-
-  def actor02PersistenceId(id: String): String = s"Ex03Actor02-$id"
-
-  def actor03PersistenceId(id: String): String = s"Ex03Actor03-$id"
-
-  def actor04PersistenceId(id: String): String = s"Ex03Actor04-$id"
-
-  val system: ActorSystem = ActorSystem("Example03")
-
-  private val actorMap: ConcurrentHashMap[String, ActorRef] = new ConcurrentHashMap[String, ActorRef]()
-
-  def getActor(persistenceId: String): ActorRef = {
-    actorMap.computeIfAbsent(persistenceId,
-      new Function[String, ActorRef] {
-        override def apply(pid: String): ActorRef = {
-          val props = pid.split("-") match {
-            case Array("Ex03Actor01", id) => Ex03Actor01.props(id)
-            case Array("Ex03Actor02", id) => Ex03Actor02.props(id)
-            case Array("Ex03Actor03", id) => Ex03Actor03.props(id)
-            case Array("Ex03Actor04", id) => Ex03Actor04.props(id)
-          }
-          system.actorOf(props, pid)
-        }
-      }
+  val actorSystem = ActorSystem("Ex03ActorSystem",
+    ConfigFactory.parseString(
+      """akka.extensions = ["ekiaa.akka.otp.entity.persistence.PersistenceEntitySystem"]
+        |akka.persistence.journal.plugin = "akka.persistence.journal.leveldb"
+        |akka.persistence.journal.leveldb.dir = "target/journal"
+        |akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.local"
+        |akka.persistence.snapshot-store.local.dir = "target/snapshots"
+      """.stripMargin
     )
-  }
+  )
+
+  val id = UUID.randomUUID().toString
+
+  val entityId = Ex03EntityId(id)
+
+  val actorRef = actorSystem.actorOf(
+    props = Props(classOf[PersistenceEntity], entityId),
+    name = entityId.persistenceId
+  )
+
+  actorRef.tell("Message", null)
 
 }
