@@ -32,8 +32,12 @@ lazy val service =
           "org.scalatest" %% "scalatest" % "2.2.4" % "it,test",
 
           "com.typesafe.akka" %% "akka-actor" % akkaVersion,
+          "com.typesafe.akka" %% "akka-persistence" % akkaVersion,
           "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
-          "com.typesafe.akka" %% "akka-testkit" % akkaVersion
+          "com.typesafe.akka" %% "akka-testkit" % akkaVersion,
+
+          "org.iq80.leveldb"          % "leveldb"        % "0.7",
+          "org.fusesource.leveldbjni" % "leveldbjni-all" % "1.8"
         ),
         parallelExecution in Test := false
       )
