@@ -11,6 +11,8 @@ object RoutingSystem {
     def cid: String
     def initialCommunicationType: CommunicationType
     def selectedGroupId: String
+    def employeeId: Option[String]
+    def voiceOperators: Set[String]
   }
 
   trait ConversationRepository {

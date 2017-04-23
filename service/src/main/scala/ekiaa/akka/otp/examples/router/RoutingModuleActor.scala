@@ -86,72 +86,72 @@ class RoutingModuleActor(accountId: String,
       }
   }
 
-  def conversationEventRequested(cid: String, state: State): Receive = {
-    case conversation: Conversation if conversation.cid == cid =>
-      val conv =
-        Conversation(
-          cid = cid,
-          groupId = conversation.selectedGroupId,
-          commType = conversation.initialCommunicationType
-        )
-      pipe (self ask GetQueueByGroupId(conv.groupId)) to self
-      context.become(queueRequested(conv, state))
+  def conversationEventRequested(cid: ConversationId, state: State): Receive = {
+    case conversationEvent: ConversationEvent if conversationEvent.cid == cid =>
+      val conversation = Conversation(
+        cid = conversationEvent.cid,
+        initialCommunicationType = conversationEvent.initialCommunicationType,
+        selectedGroup = conversationEvent.selectedGroupId,
+        employeeId = conversationEvent.employeeId,
+        voiceOperators = conversationEvent.voiceOperators
+      )
+      defineRoutingParameters(conversation, state)
     case command: RouteConversation =>
-      persist(ConversationRoutingRequested(command.cid)) { _ => }
-  }
-
-  def queueRequested(conv: Conversation, state: State): Receive = {
-    case GetQueueByGroupId(groupId) if conv.groupId == groupId =>
-      state.queueByGroupId.get(groupId) match {
-        case Some(queueId) =>
-          val queue = queueRepository.get(queueId).getOrElse(queueFactory.create(queueId))
-          sender() ! queue
-        case None =>
-          val queueId = UUID.randomUUID().toString
-          persist(QueueForGroupCreated(groupId, queueId)) { _ =>
-            val queue = queueFactory.create(queueId)
-            queueRepository.save(queue)
-            sender() ! queue
-          }
-      }
-    case queue: Queue =>
-
-    case command: RouteConversation =>
-      persist(ConversationRoutingRequested(command.cid)) { _ => }
-  }
-
-  def obtainQueueForGroupId(conv: Conversation, state: State): Unit = {
-    state.queueByGroupId.get(conv.groupId) match {
-      case Some(queueId) =>
-        val queue = queueRepository.get(queueId).getOrElse(createQueue(queueId))
-        enqueueConversation(queue, conv, state)
-      case None =>
-        val queueId = UUID.randomUUID().toString
-        persist(QueueForGroupCreated(conv.groupId, queueId)) { _ =>
-          val queue = createQueue(queueId)
-          enqueueConversation(queue, conv,
-            state.copy(queueByGroupId = state.queueByGroupId + (conv.groupId -> queueId))
+      persist(ConversationRoutingRequested(cid)) { _ =>
+        context.become(
+          conversationEventRequested(cid,
+            state.copy(waitedProcessingCids = state.waitedProcessingCids + cid)
           )
+        )
+      }
+    case _ =>
+      stash()
+  }
+
+  def defineRoutingParameters(conversation: Conversation, state: State): Unit = {
+    if (conversation.voiceOperators.nonEmpty) {
+      routeToQueueWithEmployeeSet(conversation, state)
+    } else {
+      if (conversation.employeeId.isDefined) {
+        routeToEmployeeQueue(conversation, state)
+      } else {
+        routeToGroupQueue(conversation, state)
+      }
+    }
+  }
+
+  def routeToQueueWithEmployeeSet(conversation: Conversation, state: State): Unit = {
+    //TODO Implement routeToQueueWithEmployeeSet function
+  }
+
+  def routeToEmployeeQueue(conversation: Conversation, state: State): Unit = {
+    //TODO Implement routeToEmployeeQueue function
+  }
+
+  def routeToGroupQueue(conversation: Conversation, state: State): Unit = {
+    state.queueIdByGroupId.get(conversation.selectedGroup) match {
+      case Some(queueId) =>
+        state.queues.get(queueId) match {
+          case Some(queue) =>
+            enqueueConversation(conversation, queue, state)
+          case None =>
+
         }
+      case None =>
+
     }
   }
 
-  def enqueueConversation(queue: Queue, conv: Conversation, state: State): Unit = {
-    persist(ConversationRouted(conv, queue.id)) { _ =>
-      queue.addConv(conv)
-      queueRepository.save(queue)
-      tryAssignEmployee(queue, conv, state)
-    }
+  def enqueueConversation(conversation: Conversation, queue: Queue, state: State): Unit = {
+    tryToAssignEmployee(conversation.cid, queue.queueId, state.copy(
+      queues = state.queues + (queue.queueId -> queue.copy(
+        conversations = queue.conversations + conversation
+      ))
+    ))
   }
 
-  def tryAssignEmployee(queue: Queue, conv: Conversation, state: State): Unit = {
-
-  }
-
-  def createQueue(queueId: String): Queue = {
-    val queue = queueFactory.create(queueId)
-    queueRepository.save(queue)
-    queue
+  def tryToAssignEmployee(cid: ConversationId, queueId: QueueId, state: State): Unit = {
+    //TODO
   }
 
 }
