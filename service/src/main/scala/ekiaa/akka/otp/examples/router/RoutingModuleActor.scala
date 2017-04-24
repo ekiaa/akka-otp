@@ -3,13 +3,14 @@ package ekiaa.akka.otp.examples.router
 import java.util.UUID
 
 import RoutingSystem._
-import akka.pattern.{ask, pipe}
+import akka.pattern.pipe
 import akka.persistence.{PersistentActor, RecoveryCompleted, SnapshotOffer}
 import com.typesafe.scalalogging.StrictLogging
 
 class RoutingModuleActor(accountId: String,
                          conversationRepository: ConversationRepository,
-                         assignmentSettingsRepository: AssignmentSettingsRepository
+                         assignmentSettingsRepository: AssignmentSettingsRepository,
+                         employeeLimitsRepository: EmployeeLimitsRepository
                         ) extends PersistentActor with StrictLogging {
   import RoutingModuleActor._
 
@@ -37,28 +38,71 @@ class RoutingModuleActor(accountId: String,
   override def receiveCommand: Receive = ???
 
   private def perepareOperatingState(persistedState: PersistedState): Unit = {
+    requestAssignmentSettings(
+      InitializationState(persistedState = persistedState)
+    )
+  }
+
+  private def requestAssignmentSettings(initializationState: InitializationState): Unit = {
     pipe(assignmentSettingsRepository.getAssignmentSettings(accountId)) to self
     context.become(
-      assignmentSettingsRequested(
-        InitializationState(persistedState = persistedState)
-      )
+      assignmentSettingsRequested(initializationState)
     )
   }
 
   private def assignmentSettingsRequested(initializationState: InitializationState): Receive = {
     case assignmentSettings: AssignmentSettings =>
-      processNextRoutingRequest(
-        OperatingState(
-          initializationState.copy(
-            assignmentSettings = Some(assignmentSettings)
-          )
+      requestEmployeeLimits(
+        initializationState.copy(
+          assignmentSettings = Some(assignmentSettings)
         )
       )
+    case command: RouteConversation =>
+      persist(ConversationRoutingRequested(command.cid)) { _ =>
+        context.become(
+          assignmentSettingsRequested(initializationState.copy(
+            persistedState = initializationState.persistedState.copy(
+              waitedProcessingCids = initializationState.persistedState.waitedProcessingCids + command.cid
+            )
+          ))
+        )
+      }
     case _ =>
       stash()
   }
 
-  def processNextRoutingRequest(state: State): Unit = {
+  private def requestEmployeeLimits(initializationState: InitializationState): Unit = {
+    val employeeIds = initializationState.persistedState.employees.values.map(_.employeeId).toSet
+    pipe(employeeLimitsRepository.getEmployeeLimits(accountId, employeeIds)) to self
+    context.become(
+      employeeLimitsRequested(initializationState)
+    )
+  }
+
+  private def employeeLimitsRequested(initializationState: InitializationState): Receive = {
+    case employeeLimitsMap: Map[EmployeeId, EmployeeLimits] =>
+      processNextRoutingRequest(
+        OperatingState(
+          initializationState.copy(
+            employeeLimitsMap = employeeLimitsMap
+          )
+        )
+      )
+    case command: RouteConversation =>
+      persist(ConversationRoutingRequested(command.cid)) { _ =>
+        context.become(
+          assignmentSettingsRequested(initializationState.copy(
+            persistedState = initializationState.persistedState.copy(
+              waitedProcessingCids = initializationState.persistedState.waitedProcessingCids + command.cid
+            )
+          ))
+        )
+      }
+    case _ =>
+      stash()
+  }
+
+  private def processNextRoutingRequest(state: State): Unit = {
     state.waitedProcessingCids.headOption match {
       case Some(cid) =>
         pipe(conversationRepository.getConversation(cid)) to self
@@ -74,8 +118,7 @@ class RoutingModuleActor(accountId: String,
     }
   }
 
-
-  def idle(state: State): Receive = {
+  private def idle(state: State): Receive = {
     case RouteConversation(cid) =>
       persist(ConversationRoutingRequested(cid)) { _ =>
         processNextRoutingRequest(
@@ -86,7 +129,7 @@ class RoutingModuleActor(accountId: String,
       }
   }
 
-  def conversationEventRequested(cid: ConversationId, state: State): Receive = {
+  private def conversationEventRequested(cid: ConversationId, state: State): Receive = {
     case conversationEvent: ConversationEvent if conversationEvent.cid == cid =>
       val conversation = Conversation(
         cid = conversationEvent.cid,
@@ -97,18 +140,18 @@ class RoutingModuleActor(accountId: String,
       )
       defineRoutingParameters(conversation, state)
     case command: RouteConversation =>
-      persist(ConversationRoutingRequested(cid)) { _ =>
+      persist(ConversationRoutingRequested(command.cid)) { _ =>
         context.become(
-          conversationEventRequested(cid,
-            state.copy(waitedProcessingCids = state.waitedProcessingCids + cid)
-          )
+          conversationEventRequested(cid, state.copy(
+            waitedProcessingCids = state.waitedProcessingCids + command.cid
+          ))
         )
       }
     case _ =>
       stash()
   }
 
-  def defineRoutingParameters(conversation: Conversation, state: State): Unit = {
+  private def defineRoutingParameters(conversation: Conversation, state: State): Unit = {
     if (conversation.voiceOperators.nonEmpty) {
       routeToQueueWithEmployeeSet(conversation, state)
     } else {
@@ -120,37 +163,48 @@ class RoutingModuleActor(accountId: String,
     }
   }
 
-  def routeToQueueWithEmployeeSet(conversation: Conversation, state: State): Unit = {
+  private def routeToQueueWithEmployeeSet(conversation: Conversation, state: State): Unit = {
     //TODO Implement routeToQueueWithEmployeeSet function
   }
 
-  def routeToEmployeeQueue(conversation: Conversation, state: State): Unit = {
+  private def routeToEmployeeQueue(conversation: Conversation, state: State): Unit = {
     //TODO Implement routeToEmployeeQueue function
   }
 
-  def routeToGroupQueue(conversation: Conversation, state: State): Unit = {
-    state.queueIdByGroupId.get(conversation.selectedGroup) match {
+  private def routeToGroupQueue(conversation: Conversation, state: State): Unit = {
+    val groupId = conversation.selectedGroup
+    state.queueIdByGroupId.get(groupId) match {
       case Some(queueId) =>
         state.queues.get(queueId) match {
           case Some(queue) =>
             enqueueConversation(conversation, queue, state)
           case None =>
-
+            throw new IllegalStateException(s"There is no queue in map queues for queueId[$queueId] for groupId[$groupId]")
         }
       case None =>
-
+        val queueId = UUID.randomUUID().toString
+        persist(QueueForGroupCreated(queueId, groupId)) { _ =>
+          val queue = Queue(queueId, conversations = Set.empty, employees = Set.empty)
+          enqueueConversation(conversation, queue, state.copy(
+            queueIdByGroupId = state.queueIdByGroupId + (groupId -> queueId),
+            queues = state.queues + (queueId -> queue)
+          ))
+        }
     }
   }
 
-  def enqueueConversation(conversation: Conversation, queue: Queue, state: State): Unit = {
-    tryToAssignEmployee(conversation.cid, queue.queueId, state.copy(
-      queues = state.queues + (queue.queueId -> queue.copy(
-        conversations = queue.conversations + conversation
+  private def enqueueConversation(conversation: Conversation, queue: Queue, state: State): Unit = {
+    val queueId = queue.queueId
+    persist(ConversationRouted(queueId, conversation)) { _ =>
+      tryToAssignEmployee(conversation.cid, queueId, state.copy(
+        queues = state.queues + (queueId -> queue.copy(
+          conversations = queue.conversations + conversation
+        ))
       ))
-    ))
+    }
   }
 
-  def tryToAssignEmployee(cid: ConversationId, queueId: QueueId, state: State): Unit = {
+  private def tryToAssignEmployee(cid: ConversationId, queueId: QueueId, state: State): Unit = {
     //TODO
   }
 
@@ -236,14 +290,19 @@ object RoutingModuleActor {
   }
 
   case class InitializationState(persistedState: PersistedState,
-                                 assignmentSettings: Option[AssignmentSettings] = None)
+                                 assignmentSettings: Option[AssignmentSettings] = None,
+                                 employeeLimitsMap: Map[EmployeeId, EmployeeLimits] = Map.empty)
+
+  case class BusySlots(chatSite: Option[Long], otherChannels: Option[Long])
+
+  case class Employee(employeeId: EmployeeId,
+                      limits: EmployeeLimits,
+                      busySlots: BusySlots,
+                      conversations: Set[Conversation])
 
   case class Queue(queueId: QueueId,
                    conversations: Set[Conversation],
                    employees: Set[EmployeeId])
-
-  case class Employee(employeeId: EmployeeId,
-                      conversations: Set[Conversation])
 
   case class State(waitedProcessingCids: Set[ConversationId],
                    queueIdByGroupId: Map[GroupId, QueueId],
@@ -270,8 +329,13 @@ object RoutingModuleActor {
           )
         },
         employees = initializationState.persistedState.employees.map { case (employeeId, persistedEmployee) =>
+          val employeeLimits = initializationState.employeeLimitsMap.
+            getOrElse(employeeId, EmployeeLimits(chatSiteLimit = None, otherChannels = None))
           employeeId -> Employee(
             employeeId = persistedEmployee.employeeId,
+            limits = employeeLimits,
+            //TODO Заполнять BusySlots
+            busySlots = BusySlots(chatSite = None, otherChannels = None),
             conversations = persistedEmployee.conversations
           )
         },

@@ -25,4 +25,10 @@ object RoutingSystem {
     def getAssignmentSettings(accountId: String): Future[AssignmentSettings]
   }
 
+  case class EmployeeLimits(chatSiteLimit: Option[Long], otherChannels: Option[Long])
+
+  trait EmployeeLimitsRepository {
+    def getEmployeeLimits(accountId: String, employeeIds: Set[String]): Future[Map[String, EmployeeLimits]]
+  }
+
 }
