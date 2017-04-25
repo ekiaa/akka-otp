@@ -7,6 +7,10 @@ object RoutingSystem {
 
   trait CommunicationType
 
+  object CommunicationType {
+    case object ChatSite extends CommunicationType
+  }
+
   trait ConversationEvent {
     def cid: String
     def initialCommunicationType: CommunicationType
@@ -21,6 +25,11 @@ object RoutingSystem {
 
   trait AssignmentSettings
 
+  object AssignmentSettings {
+    case object Random extends AssignmentSettings
+    case object Fair extends AssignmentSettings
+  }
+
   trait AssignmentSettingsRepository {
     def getAssignmentSettings(accountId: String): Future[AssignmentSettings]
   }
@@ -29,6 +38,13 @@ object RoutingSystem {
 
   trait EmployeeLimitsRepository {
     def getEmployeeLimits(accountId: String, employeeIds: Set[String]): Future[Map[String, EmployeeLimits]]
+  }
+
+  trait EmployeeStatus
+
+  object EmployeeStatus {
+    case object Online extends EmployeeStatus
+    case object Offline extends EmployeeStatus
   }
 
 }
